@@ -7,6 +7,7 @@
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
 #include <sstream>
+#include <regex>
 
 using boost::asio::ip::tcp;
 namespace bp = boost::process;
@@ -20,6 +21,19 @@ int fork_until_success(){
   int r;
   while( (r=fork())==-1 );
   return r;
+}
+
+bool firewall_check(char thecmd,string dst_ip){
+  ifstream ifs( "socks.conf" , ifstream::in ); 
+  string permit,cmd,target;
+  while(ifs>>permit>>cmd>>target)
+  {
+    if(!(cmd=="c" && thecmd == '\x01')  && !(cmd=="b" && thecmd == '\x02'))continue;
+    boost::replace_all(target, ".", "\\.");
+    boost::replace_all(target, "*", "[0-9]{1,3}");
+    if (regex_match(dst_ip, regex(target))) return true;
+  }
+  return false;
 }
 
 class session
@@ -49,7 +63,6 @@ private:
         {
             if (!ec)
             {
-              cerr<<"g";
               count++;
               strbuf += onebyte[0];
               if(count<9 || onebyte[0]!='\x00')
@@ -79,15 +92,22 @@ private:
                 cout<<"<D_IP>: "<<inet_ntoa (*((struct in_addr *) he->h_addr_list[0]))<<endl;
                 server_addr = string(inet_ntoa (*((struct in_addr *) he->h_addr_list[0])));
               }else{
-                cout<<"<D_IP>: "<<int(strbuf[4])<<":"<<int(strbuf[5])<<":"<<int(strbuf[6])<<":"<<int(strbuf[7])<<endl;
-                server_addr = to_string(int(strbuf[4]))+":"+to_string(int(strbuf[5]))+":"+to_string(int(strbuf[6]))+":"+to_string(int(strbuf[7]));
+                cout<<"<D_IP>: "<<int((unsigned char)strbuf[4])<<":"<<int((unsigned char)strbuf[5])<<":"<<int((unsigned char)strbuf[6])<<":"<<int((unsigned char)strbuf[7])<<endl;
+                server_addr = to_string(int((unsigned char)strbuf[4]))+":"+to_string(int((unsigned char)strbuf[5]))+":"+to_string(int((unsigned char)strbuf[6]))+":"+to_string(int((unsigned char)strbuf[7]));
               }
-              cout<<"<D_PORT>: "<<strbuf[2]*256+strbuf[3]<<endl;
-              server_port = strbuf[2]*256+strbuf[3];
+              cout<<"<D_PORT>: "<<(unsigned char)(strbuf[2])*256+(unsigned char)strbuf[3]<<endl;
+              server_port = (unsigned char)(strbuf[2])*256+(unsigned char)strbuf[3];
               if(strbuf[1]=='\x01')cout<<"<Command>: "<<"CONNECT\n";
               if(strbuf[1]=='\x02')cout<<"<Command>: "<<"BIND\n";
-              cout<<"<Reply>: "<<"Accept"<<endl;
-              do_accept_request(int(strbuf[1]));
+              if(firewall_check(strbuf[1],server_addr))
+              {
+                accept = true;
+                cout<<"<Reply>: "<<"Accept"<<endl;
+              }else{
+                accept = false;
+                cout<<"<Reply>: "<<"Reject"<<endl;
+              }
+              do_accept_request(int((unsigned char)strbuf[1]));
             }
         });
   }
@@ -119,24 +139,28 @@ private:
     client_side_socket.async_read_some(boost::asio::buffer(clientonebyte),
         [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
         {
-          cerr<<"aaa";
+          if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
+          {
+            exit(0);
+          }
           if (!ec)
           {
             boost::asio::write(server_side_socket,boost::asio::buffer(clientonebyte,1));
           }
           do_client_read();
         });
-      cerr<<"ccc";
   }
 
   void do_server_read()
   {
-    cerr<<"ddd";
     auto self(shared_from_this());
     server_side_socket.async_read_some(boost::asio::buffer(serveronebyte),
         [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
         {
-          cerr<<"bbb";
+          if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
+          {
+            exit(0);
+          }
           if (!ec)
           {
             boost::asio::write(client_side_socket,boost::asio::buffer(serveronebyte,1));
@@ -146,7 +170,7 @@ private:
   }
 
   string server_addr;
-  int server_port;
+  uint server_port;
   int FirstNullPlace;
   bool socks4a_after_null;
   int count;
@@ -174,13 +198,14 @@ private:
     acceptor_.async_accept(
         [this](boost::system::error_code ec, tcp::socket socket)
         {
-            //int pid = fork_until_success();
-            //if (!ec && pid==0)
-            //{
-                //acceptor_.close(ec);
-                std::make_shared<session>(std::move(socket))->start();
-                //io_context_init.run();
-            //}
+            io_context_init.notify_fork(boost::asio::io_context::fork_prepare);
+            int pid = fork_until_success();
+            if (!ec && pid==0)
+            {
+              io_context_init.notify_fork(boost::asio::io_context::fork_child);
+              std::make_shared<session>(std::move(socket))->start();
+            }
+            io_context_init.notify_fork(boost::asio::io_context::fork_parent);
             do_accept();
         });
   }
