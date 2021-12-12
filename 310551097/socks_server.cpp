@@ -199,8 +199,8 @@ private:
   int count;
   string strbuf;
   std::array<char, 1> onebyte;
-  std::array<char, 100> clientbytes;
-  std::array<char, 100> serverbytes;
+  std::array<char, 1500> clientbytes;
+  std::array<char, 1500> serverbytes;
   tcp::socket client_side_socket;
   tcp::socket server_side_socket;
   bool accept;
