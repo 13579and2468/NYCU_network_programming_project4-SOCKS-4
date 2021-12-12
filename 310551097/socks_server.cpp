@@ -92,8 +92,8 @@ private:
                 cout<<"<D_IP>: "<<inet_ntoa (*((struct in_addr *) he->h_addr_list[0]))<<endl;
                 server_addr = string(inet_ntoa (*((struct in_addr *) he->h_addr_list[0])));
               }else{
-                cout<<"<D_IP>: "<<int((unsigned char)strbuf[4])<<":"<<int((unsigned char)strbuf[5])<<":"<<int((unsigned char)strbuf[6])<<":"<<int((unsigned char)strbuf[7])<<endl;
-                server_addr = to_string(int((unsigned char)strbuf[4]))+":"+to_string(int((unsigned char)strbuf[5]))+":"+to_string(int((unsigned char)strbuf[6]))+":"+to_string(int((unsigned char)strbuf[7]));
+                cout<<"<D_IP>: "<<int((unsigned char)strbuf[4])<<"."<<int((unsigned char)strbuf[5])<<"."<<int((unsigned char)strbuf[6])<<"."<<int((unsigned char)strbuf[7])<<endl;
+                server_addr = to_string(int((unsigned char)strbuf[4]))+"."+to_string(int((unsigned char)strbuf[5]))+"."+to_string(int((unsigned char)strbuf[6]))+"."+to_string(int((unsigned char)strbuf[7]));
               }
               cout<<"<D_PORT>: "<<(unsigned char)(strbuf[2])*256+(unsigned char)strbuf[3]<<endl;
               server_port = (unsigned char)(strbuf[2])*256+(unsigned char)strbuf[3];
@@ -129,6 +129,27 @@ private:
       }
     }
 
+    if(cd == 2) //bind
+    {
+      tcp::acceptor acceptor_(io_context_init,tcp::endpoint(tcp::v4(), 0));
+
+      if(accept)
+      {
+        char reply[9];
+        reply[0] = '\x00';
+        reply[1] = '\x5a';
+        reply[2] = (unsigned char)(acceptor_.local_endpoint().port()/256);
+        reply[3] = (unsigned char)(acceptor_.local_endpoint().port()%256);
+        reply[4] =reply[5] =reply[6] =reply[7] = '\x00';
+        boost::asio::write(client_side_socket,boost::asio::buffer(reply,8));
+        acceptor_.accept(server_side_socket);
+        boost::asio::write(client_side_socket,boost::asio::buffer(reply,8));
+      }else
+      {
+        boost::asio::write(client_side_socket,boost::asio::buffer("\x00\x5b\x00\x00\x00\x00\x00\x00",8));
+      }
+    }
+
     do_client_read();
     do_server_read();
   }
@@ -136,7 +157,7 @@ private:
   void do_client_read()
   {
     auto self(shared_from_this());
-    client_side_socket.async_read_some(boost::asio::buffer(clientonebyte),
+    client_side_socket.async_read_some(boost::asio::buffer(clientbytes),
         [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
         {
           if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
@@ -145,7 +166,8 @@ private:
           }
           if (!ec)
           {
-            boost::asio::write(server_side_socket,boost::asio::buffer(clientonebyte,1));
+            //cerr<<"client : "<<bytes_transferred;
+            boost::asio::write(server_side_socket,boost::asio::buffer(clientbytes,bytes_transferred));
           }
           do_client_read();
         });
@@ -154,7 +176,7 @@ private:
   void do_server_read()
   {
     auto self(shared_from_this());
-    server_side_socket.async_read_some(boost::asio::buffer(serveronebyte),
+    server_side_socket.async_read_some(boost::asio::buffer(serverbytes),
         [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
         {
           if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
@@ -163,7 +185,8 @@ private:
           }
           if (!ec)
           {
-            boost::asio::write(client_side_socket,boost::asio::buffer(serveronebyte,1));
+            //cerr<<"server : "<<bytes_transferred;
+            boost::asio::write(client_side_socket,boost::asio::buffer(serverbytes,bytes_transferred));
           }
           do_server_read();
         });
@@ -176,8 +199,8 @@ private:
   int count;
   string strbuf;
   std::array<char, 1> onebyte;
-  std::array<char, 1> clientonebyte;
-  std::array<char, 1> serveronebyte;
+  std::array<char, 100> clientbytes;
+  std::array<char, 100> serverbytes;
   tcp::socket client_side_socket;
   tcp::socket server_side_socket;
   bool accept;
