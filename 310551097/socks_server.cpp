@@ -171,6 +171,7 @@ private:
         {
           if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
           {
+            exit(0);
             return;
           }
           if (!ec)
@@ -192,6 +193,7 @@ private:
         {
           if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
           {
+            exit(0);
             return;
           }
           if (!ec)
