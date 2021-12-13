@@ -12,7 +12,7 @@ string p[5];
 string f[5];
 string sh,sp;
 
-io_service ioservice;
+io_context ioservice;
 
 void parsearg()
 {
@@ -186,32 +186,54 @@ private:
                           {
                             if (!ec)
                             {
-                              char request[9];
-                              request[0] = '\x04';
-                              request[1] = '\x01';
-                              request[2] = (unsigned char)(stoi(p)/256);
-                              request[3] = (unsigned char)(stoi(p)%256);
-                              string hstr = string(inet_ntoa (*((struct in_addr *) he->h_addr_list[0])));
-                              replace( hstr.begin(), hstr.end(), '.', ' ');
-                              stringstream ss(hstr);
-                              for(int i=4;i<8;i++)
-                              {
-                                int temp;
-                                ss >> temp;
-                                request[i] = (unsigned char)(temp);
-                              }
-                              request[8] = '\x00';
-                              boost::asio::write(_socket,boost::asio::buffer(request,9));  // request socks4
-                              std::array<char, 8> response;
-                              boost::asio::read(_socket,boost::asio::buffer(response),boost::asio::transfer_exactly(8));
-                              if(response[1]==91)
-                              {
-                                cerr<<"Rejected"<<endl;
-                                return;
-                              }
-                              do_read();
+                              do_socks_req();
                             }
                           });
+  }
+
+  void do_socks_req(){
+    auto self(shared_from_this());
+    char request[9];
+    request[0] = '\x04';
+    request[1] = '\x01';
+    request[2] = (unsigned char)(stoi(p)/256);
+    request[3] = (unsigned char)(stoi(p)%256);
+    string hstr = string(inet_ntoa (*((struct in_addr *) he->h_addr_list[0])));
+    replace( hstr.begin(), hstr.end(), '.', ' ');
+    stringstream ss(hstr);
+    for(int i=4;i<8;i++)
+    {
+      int temp;
+      ss >> temp;
+      request[i] = (unsigned char)(temp);
+    }
+    request[8] = '\x00';
+    boost::asio::async_write(_socket, boost::asio::buffer(request, 9),
+                             [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
+                             {
+                               if (!ec)
+                               {
+                                 do_socks_get_res();
+                               }
+                             });
+  }
+
+  void do_socks_get_res(){
+    auto self(shared_from_this());
+    boost::asio::async_read(_socket, boost::asio::buffer(socks4_response),boost::asio::transfer_all(),
+    [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
+                            {
+                              if (!ec)
+                              {
+                                if(bytes_transferred!=9)cerr<<bytes_transferred<<" not 9\n";
+                                if(socks4_response[1]==91)
+                                {
+                                  cerr<<"Rejected"<<endl;
+                                  return;
+                                }
+                                do_read();
+                              }
+                            });
   }
 
   void do_read()
@@ -255,6 +277,7 @@ private:
                              });
   }
 
+  std::array<char, 8> socks4_response;
   boost::asio::streambuf sockiobuf;
   std::string h;
   std::string p;

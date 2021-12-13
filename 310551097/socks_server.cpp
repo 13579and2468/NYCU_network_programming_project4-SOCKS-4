@@ -49,6 +49,14 @@ public:
     accept = true;
   }
 
+  ~session(){
+    boost::system::error_code errorcode;
+    client_side_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, errorcode);
+    client_side_socket.close();
+    server_side_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, errorcode);
+    server_side_socket.close();
+  }
+
   void start()
   {
     do_read_request();
@@ -157,16 +165,18 @@ private:
   void do_client_read()
   {
     auto self(shared_from_this());
-    client_side_socket.async_read_some(boost::asio::buffer(clientbytes),
+    client_side_socket.async_read_some(boost::asio::buffer(clientbytes,1500),
         [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
         {
           if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
           {
-            exit(0);
+            return;
           }
           if (!ec)
           {
-            //cerr<<"client : "<<bytes_transferred;
+            cerr<<"client : "<<bytes_transferred<<" : ";
+            for(char a : clientbytes)cerr<<a;
+            cerr<<endl;
             boost::asio::write(server_side_socket,boost::asio::buffer(clientbytes,bytes_transferred));
           }
           do_client_read();
@@ -176,16 +186,16 @@ private:
   void do_server_read()
   {
     auto self(shared_from_this());
-    server_side_socket.async_read_some(boost::asio::buffer(serverbytes),
+    server_side_socket.async_read_some(boost::asio::buffer(serverbytes,1500),
         [this, self](boost::system::error_code ec, std::size_t bytes_transferred)
         {
           if ((boost::asio::error::eof == ec) || (boost::asio::error::connection_reset == ec))
           {
-            exit(0);
+            return;
           }
           if (!ec)
           {
-            //cerr<<"server : "<<bytes_transferred;
+            cerr<<"server : "<<bytes_transferred<<endl;
             boost::asio::write(client_side_socket,boost::asio::buffer(serverbytes,bytes_transferred));
           }
           do_server_read();
@@ -221,14 +231,14 @@ private:
     acceptor_.async_accept(
         [this](boost::system::error_code ec, tcp::socket socket)
         {
-            io_context_init.notify_fork(boost::asio::io_context::fork_prepare);
-            int pid = fork_until_success();
-            if (!ec && pid==0)
-            {
-              io_context_init.notify_fork(boost::asio::io_context::fork_child);
+            //io_context_init.notify_fork(boost::asio::io_context::fork_prepare);
+            //int pid = fork_until_success();
+            //if (!ec && pid==0)
+            //{
+              //io_context_init.notify_fork(boost::asio::io_context::fork_child);
               std::make_shared<session>(std::move(socket))->start();
-            }
-            io_context_init.notify_fork(boost::asio::io_context::fork_parent);
+            //}
+            //io_context_init.notify_fork(boost::asio::io_context::fork_parent);
             do_accept();
         });
   }
