@@ -55,6 +55,7 @@ public:
     client_side_socket.close();
     server_side_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, errorcode);
     server_side_socket.close();
+    exit(0);
   }
 
   void start()
@@ -174,9 +175,9 @@ private:
           }
           if (!ec)
           {
-            cerr<<"client : "<<bytes_transferred<<" : ";
-            for(char a : clientbytes)cerr<<a;
-            cerr<<endl;
+            //cerr<<"client : "<<bytes_transferred<<" : ";
+            //for(char a : clientbytes)cerr<<a;
+            //cerr<<endl;
             boost::asio::write(server_side_socket,boost::asio::buffer(clientbytes,bytes_transferred));
           }
           do_client_read();
@@ -195,7 +196,7 @@ private:
           }
           if (!ec)
           {
-            cerr<<"server : "<<bytes_transferred<<endl;
+            //cerr<<"server : "<<bytes_transferred<<endl;
             boost::asio::write(client_side_socket,boost::asio::buffer(serverbytes,bytes_transferred));
           }
           do_server_read();
@@ -231,15 +232,17 @@ private:
     acceptor_.async_accept(
         [this](boost::system::error_code ec, tcp::socket socket)
         {
-            //io_context_init.notify_fork(boost::asio::io_context::fork_prepare);
-            //int pid = fork_until_success();
-            //if (!ec && pid==0)
-            //{
-              //io_context_init.notify_fork(boost::asio::io_context::fork_child);
+            io_context_init.notify_fork(boost::asio::io_context::fork_prepare);
+            int pid = fork_until_success();
+            if (!ec && pid==0)
+            {
+              io_context_init.notify_fork(boost::asio::io_context::fork_child);
               std::make_shared<session>(std::move(socket))->start();
-            //}
-            //io_context_init.notify_fork(boost::asio::io_context::fork_parent);
-            do_accept();
+            }else
+            {
+              io_context_init.notify_fork(boost::asio::io_context::fork_parent);
+              do_accept(); 
+            }
         });
   }
 
